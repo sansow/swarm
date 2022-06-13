@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  rates-web-service:
+      image: quay.io/openshiftroadshow/parksmap:latest
+      ports:
+        - '8080:8080'
+      env_file: .env
+      secrets:
+        - mktx-kafka-client-user-pwd
+        - mktx-kafka-client-truststore-pwd
+      deploy:
+        replicas: 4
+        resources:
+          limits:
+            memory: "2Gi"
+            cpus: "1"
