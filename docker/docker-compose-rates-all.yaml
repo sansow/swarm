@@ -1,0 +1,214 @@
+version: '3.8'
+
+services:
+  rates-action-service:
+    image: quay.io/openshiftroadshow/parksmap:latest
+    environment:
+      - REPLICA_NUMBER={{.Task.Slot}}
+      - DD_TAGS=replica:{{.Task.Slot}}
+      - DD_SERVICE=rates.action-service
+      - DD_SERVICE_MAPPING=jms:rates.action-service,kafka:rates.action-service,redis:rates.action-service,oracle:rates.action-service
+      - DD_AGENT_HOST=datadog
+      - SPRING_PROFILES_ACTIVE=$SPRING_PROFILES_ACTIVE
+      - APPLICATION_REDIS_CONFIG_GLOBALADDRESSES=${REDIS_ADDRESSES}
+      - REDIS_USER_NAME=${REDIS_USER_NAME:-appuser}
+      - MKTX_RATES_COMPOSITEHTTPCLIENT_CONNECTION=http://rates-composite-rest:8080/landingPage
+      - LOGGING_CONFIG=$LOGGING_CONFIG_FILE
+      - INQUIRY_RETRY_DELAY=${INQUIRY_RETRY_DELAY:-20}
+      - INQUIRY_RETRY_MAXATTEMPTS=${INQUIRY_RETRY_MAXATTEMPTS:-250}
+      - INQUIRY_RETRY_MULTIPLIER=${INQUIRY_RETRY_MULTIPLIER:-1}
+    secrets:
+      - mktx-redis-password
+  rates-sub-view-service-inquiry:
+    image: quay.io/openshiftroadshow/parksmap:latest
+    environment:
+      - KAFKA_BOOTSTRAP_URLS=$KAFKA_BOOTSTRAP_SERVERS
+      - APPLICATION_REDIS_CONFIG_GLOBALADDRESSES=$REDIS_ADDRESSES
+      - START_COMPOSITE=false
+      - REPLICA_NUMBER={{.Task.Slot}}
+      - DD_TAGS=replica:{{.Task.Slot}}
+      - DD_SERVICE=rates.sub-view-service.inquiry
+      - DD_SERVICE_MAPPING=jms:rates.sub-view-service.inquiry,kafka:rates.sub-view-service.inquiry,redis:rates.sub-view-service.inquiry,oracle:rates.sub-view-service.inquiry
+      - DD_AGENT_HOST=datadog
+      - SPRING_PROFILES_ACTIVE=$SPRING_PROFILES_ACTIVE
+      - REDIS_USER_NAME=${REDIS_USER_NAME:-appuser}
+      - TRUST_STORE_LOC=$TRUST_STORE_LOC
+      - KAFKA_SASL_USER_NAME=${KAFKA_SASL_USER_NAME:-appuser}
+      - LOGGING_CONFIG=$LOGGING_CONFIG_FILE
+    volumes:
+      - kafka-trust-vol:/tmp:ro
+    secrets:
+      - mktx-redis-password
+      - mktx-kafka-client-user-pwd
+      - mktx-kafka-client-truststore-pwd
+    deploy:
+      replicas: 4
+      resources:
+        limits:
+          memory: "2Gi"
+          cpus: "1"
+  
+  rates-sub-view-service-composite:
+    image: quay.io/openshiftroadshow/parksmap:latest
+    environment:
+      - KAFKA_BOOTSTRAP_URLS=$KAFKA_BOOTSTRAP_SERVERS
+      - APPLICATION_REDIS_CONFIG_GLOBALADDRESSES=$REDIS_ADDRESSES
+      - START_INQUIRY=false
+      - REPLICA_NUMBER={{.Task.Slot}}
+      - DD_TAGS=replica:{{.Task.Slot}}
+      - DD_SERVICE=rates.sub-view-service.composite
+      - DD_SERVICE_MAPPING=jms:rates.sub-view-service.composite,kafka:rates.sub-view-service.composite,redis:rates.sub-view-service.composite,oracle:rates.sub-view-service.composite
+      - DD_AGENT_HOST=datadog
+      - SPRING_PROFILES_ACTIVE=$SPRING_PROFILES_ACTIVE
+      - REDIS_USER_NAME=${REDIS_USER_NAME:-appuser}
+      - TRUST_STORE_LOC=$TRUST_STORE_LOC
+      - KAFKA_SASL_USER_NAME=${KAFKA_SASL_USER_NAME:-appuser}
+      - MKTX_RATES_COMPOSITEHTTPCLIENT_CONNECTION=http://rates-composite-rest:8080/landingPage
+      - LOGGING_CONFIG=$LOGGING_CONFIG_FILE
+    volumes:
+      - kafka-trust-vol:/tmp:ro
+    secrets:
+      - mktx-redis-password
+      - mktx-kafka-client-user-pwd
+      - mktx-kafka-client-truststore-pwd
+    deploy:
+      replicas: 4
+      resources:
+        limits:
+          memory: "2Gi"
+          cpus: "1"
+
+  rates-composite-aggregator:
+    image: quay.io/openshiftroadshow/parksmap:latest
+    environment:
+      SPRING_KAFKA_BOOTSTRAP-SERVERS: $KAFKA_BOOTSTRAP_SERVERS
+      APPLICATION_REDIS_CONFIG_GLOBALADDRESSES: $REDIS_ADDRESSES
+      REPLICA_NUMBER: '{{.Task.Slot}}'
+      SPRING_PROFILES_ACTIVE: $SPRING_PROFILES_ACTIVE
+      DD_SERVICE: rates.composite.aggregator
+      DD_SERVICE_MAPPING: kafka:rates.composite.aggregator
+      DD_AGENT_HOST: datadog
+      DD_TAGS: team:rates
+      DD_LOGS_INJECTION: 'true'
+      DD_KAFKA_CLIENT_PROPAGATION_ENABLED: 'false'
+      COMPOSITE-AGGREGATOR_COMPOSITE-THROTTLED-TOPIC: Rates.Composite.RateLimited
+    labels:
+      marketaxess.resources.limits.memory: none
+    deploy:
+      replicas: 8
+      resources:
+        limits:
+          memory: "2Gi"
+          cpus: "1"
+  rates-inquiry-rate-limiter:
+    image: quay.io/openshiftroadshow/parksmap:latest
+    environment:
+      SPRING_KAFKA_BOOTSTRAP-SERVERS: $KAFKA_BOOTSTRAP_SERVERS
+      SPRING_KAFKA_STREAMS_CACHE-MAX-SIZE-BUFFERING: 0
+      REPLICA_NUMBER: '{{.Task.Slot}}'
+      SPRING_PROFILES_ACTIVE: $SPRING_PROFILES_ACTIVE
+      DD_SERVICE: rates.inquiry.rate.limiter
+      DD_SERVICE_MAPPING: kafka:rates.inquiry.rate.limiter
+      DD_AGENT_HOST: datadog
+      DD_TAGS: team:rates
+      DD_LOGS_INJECTION: 'true'
+      DD_KAFKA_CLIENT_PROPAGATION_ENABLED: 'false'
+    labels:
+      marketaxess.resources.limits.memory: none
+    deploy:
+      replicas: 4
+      resources:
+        limits:
+          memory: "2Gi"
+          cpus: "1"
+
+  rates-composite-rest:
+    image: quay.io/openshiftroadshow/parksmap:latest
+    environment:
+      KAFKA_BOOTSTRAP_URLS: $KAFKA_BOOTSTRAP_SERVERS
+      APPLICATION_INVENTORY_KAFKA_CONSUMER_BOOTSTRAP-SERVERS: $KAFKA_BOOTSTRAP_SERVERS
+      APPLICATION_REDIS_CONFIG_GLOBALADDRESSES: $REDIS_ADDRESSES
+      REPLICA_NUMBER: '{{.Task.Slot}}'
+      SPRING_PROFILES_ACTIVE: $SPRING_PROFILES_ACTIVE
+      DD_SERVICE: rates.composite.rest
+      DD_SERVICE_MAPPING: kafka:rates.composite.rest
+      DD_AGENT_HOST: datadog
+      DD_TAGS: team:rates
+      DD_LOGS_INJECTION: 'true'
+      DD_KAFKA_CLIENT_PROPAGATION_ENABLED: 'false'
+    labels:
+      marketaxess.resources.limits.memory: none
+    deploy:
+      replicas: 4
+      resources:
+        limits:
+          memory: "2Gi"
+          cpus: "1"
+
+  rates-web-service:
+    image: quay.io/openshiftroadshow/parksmap:latest
+    ports:
+      - '8080:8080'
+    environment:
+      - FRONTEND_DOMAIN=$FRONTEND_DOMAIN
+      - SPRING_KAFKA_CONSUMER_BOOTSTRAP-SERVERS=$KAFKA_BOOTSTRAP_SERVERS
+      - SPRING_KAFKA_PRODUCER_BOOTSTRAP-SERVERS=$KAFKA_BOOTSTRAP_SERVERS
+      - SPRING_APPLICATION_DOMAIN=${FRONTEND_DOMAIN}
+      - REPLICA_NUMBER={{.Task.Slot}}
+      - DD_TAGS=replica:{{.Task.Slot}}
+      - DD_SERVICE=rates.web-service
+      - DD_SERVICE_MAPPING=jms:rates.web-service,kafka:rates.web-service,redis:rates.web-service,oracle:rates.web-service
+      - DD_AGENT_HOST=datadog
+      - SPRING_PROFILES_ACTIVE=$SPRING_PROFILES_ACTIVE
+      - TRUST_STORE_LOC=$TRUST_STORE_LOC
+      - KAFKA_SASL_USER_NAME=${KAFKA_SASL_USER_NAME:-appuser}
+      - KAFKA_BOOTSTRAP_SERVERS=$KAFKA_BOOTSTRAP_SERVERS
+      - ZUUL_ROUTES_RATES-INVENTORY-REST_URL=http://rates-composite-rest:8080/landingPage
+      - REACT_APP_FEATURE_FLAG_SHOW_CTT_CONTEXT_MENU=$REACT_APP_FEATURE_FLAG_SHOW_CTT_CONTEXT_MENU
+    secrets:
+      - mktx-kafka-client-user-pwd
+      - mktx-kafka-client-truststore-pwd
+    deploy:
+      replicas: 4
+      resources:
+        limits:
+          memory: "2Gi"
+          cpus: "1"
+
+  rates-response-service:
+    image: quay.io/openshiftroadshow/parksmap:latest
+    environment:
+      KAFKA_BOOTSTRAP_URLS: $KAFKA_BOOTSTRAP_SERVERS
+      id: '{{.Task.Slot}}'
+      REPLICA_NUMBER: '{{.Task.Slot}}'
+      serviceName: rates-response-service
+      SPRING_PROFILES_ACTIVE: $SPRING_PROFILES_ACTIVE
+      LOGGING_CONFIG: $LOGGING_CONFIG_FILE
+      DD_SERVICE: rates.response.service
+      DD_SERVICE_MAPPING: kafka:rates.response.service
+      DD_AGENT_HOST: datadog
+      DD_TAGS: team:rates
+      DD_LOGS_INJECTION: 'true'
+      DD_KAFKA_CLIENT_PROPAGATION_ENABLED: 'false'
+      REACT_APP_FEATURE_FLAG_SHOW_CTT_CONTEXT_MENU: 'true'
+    labels:
+      marketaxess.resources.limits.memory: none
+    deploy:
+      replicas: 20
+      resources:
+        limits:
+          memory: "2Gi"
+          cpus: "1"
+    volumes:
+      - /nfs/:/heap/
+    networks:
+      - bondlinkbridge
+      - datadog
+      - rates  
+volumes:
+  kafka_trust_vol:
+
+
+
+
+  
