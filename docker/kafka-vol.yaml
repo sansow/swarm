@@ -12,6 +12,7 @@ spec:
   volumeMode: Filesystem
   volumeName: kafka-vol
   awsElasticBlockStore:
+    volumeID: 'aws://us-east-2c/vol-04c9c96d5a5fae7c6'
     fsType: ext4
 
 
